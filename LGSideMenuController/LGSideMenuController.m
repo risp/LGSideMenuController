@@ -159,6 +159,7 @@
 @property (assign, nonatomic, getter=isRightViewShowingBeforeGesture) BOOL rightViewShowingBeforeGesture;
 
 @property (strong, nonatomic) UIPanGestureRecognizer *panGesture;
+@property (nonatomic, strong) NSMutableSet *touchForwardingClasses;
 
 @property (assign, nonatomic, getter=isUserRootViewScaleForLeftView) BOOL userRootViewScaleForLeftView;
 @property (assign, nonatomic, getter=isUserRootViewCoverColorForLeftView) BOOL userRootViewCoverColorForLeftView;
@@ -294,10 +295,15 @@
     [self.view addGestureRecognizer:tapGesture];
 
     _panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panGesture:)];
+    _panGesture.delegate = self;
+    _panGesture.delaysTouchesBegan = YES;
+    _panGesture.delaysTouchesEnded = YES;
     _panGesture.minimumNumberOfTouches = 1;
     _panGesture.maximumNumberOfTouches = 1;
     _panGesture.cancelsTouchesInView = YES;
     [self.view addGestureRecognizer:_panGesture];
+    
+    self.touchForwardingClasses = [NSMutableSet setWithArray:@[[UIControl class]]];
 }
 
 #pragma mark - Dealloc
@@ -1766,7 +1772,27 @@
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch
 {
-    return ([touch.view isEqual:_rootViewCoverViewForLeftView] || [touch.view isEqual:_rootViewCoverViewForRightView]);
+    if ([gestureRecognizer isKindOfClass:[UIPanGestureRecognizer class]]) {
+        __block BOOL shouldReceiveTouch = YES;
+        UIView *view = touch.view;
+        
+        // Enumerate the view's superviews, checking for a touch-forwarding class
+        do {
+            // If the touch was in a touch forwarding view, don't handle the gesture
+            [self.touchForwardingClasses enumerateObjectsUsingBlock:^(Class touchForwardingClass, BOOL *stop) {
+                if ([view isKindOfClass:touchForwardingClass]) {
+                    shouldReceiveTouch = NO;
+                    *stop = YES;
+                }
+            }];
+            
+            view = view.superview;
+        } while (shouldReceiveTouch && view.superview != nil);
+        
+        return shouldReceiveTouch;
+    } else {
+        return ([touch.view isEqual:_rootViewCoverViewForLeftView] || [touch.view isEqual:_rootViewCoverViewForRightView]);
+    }
 }
 
 #pragma mark - Support
